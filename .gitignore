@@ -1,0 +1,6 @@
+logs/*
+data/*
+models/*
+samples/*
+.vscode/*
+*.pyc
