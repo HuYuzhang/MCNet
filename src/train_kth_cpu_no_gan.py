@@ -2,6 +2,7 @@ import cv2
 import sys
 import time
 import imageio
+import os
 
 import tensorflow as tf
 import scipy.misc as sm
@@ -18,6 +19,8 @@ from joblib import Parallel, delayed
 
 def main(lr, batch_size, alpha, beta, image_size, K,
          T, num_iter, gpu):
+
+  os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu[0])
   data_path = "../data/KTH/"
   f = open(data_path+"train_data_list_trimmed.txt","r")
   trainfiles = f.readlines()
@@ -115,11 +118,11 @@ def main(lr, batch_size, alpha, beta, image_size, K,
                 % (iters, time.time() - start_time, errL_img)
             )
 
-            if np.mod(counter, 100) == 1:
+            if np.mod(counter, 10) == 1:
               samples = sess.run([model.G],
                                   feed_dict={model.diff_in: diff_batch,
-                                             model.xt: seq_batch[:,:,:,K-1],
-                                             model.target: seq_batch})[0]
+                                              model.xt: seq_batch[:,:,:,K-1],
+                                              model.target: seq_batch})[0]
               samples = samples[0].swapaxes(0,2).swapaxes(1,2)
               sbatch  = seq_batch[0,:,:,K:].swapaxes(0,2).swapaxes(1,2)
               samples = np.concatenate((samples,sbatch), axis=0)

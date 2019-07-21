@@ -35,7 +35,8 @@ class MCNET(object):
     cell = BasicConvLSTMCell([self.image_size[0]/8, self.image_size[1]/8],
                              [3, 3], 256)
     pred = self.forward(self.diff_in, self.xt, cell)
-
+    # Here is the define if self.G
+    # Its shape is of [batch_size, image_size, image_size, T, 3], and it range from [-1.0, 1.0]
     self.G = tf.concat(axis=3,values=pred)
     if self.is_train:
       true_sim = inverse_transform(self.target[:,:,:,self.K:,:])
@@ -48,6 +49,7 @@ class MCNET(object):
       gen_sim = tf.reshape(tf.transpose(gen_sim,[0,3,1,2,4]),
                                         [-1, self.image_size[0],
                                         self.image_size[1], 3])
+      # binput is the input frames, and btarget is the target frame, bgen is the predicted frame
       binput = tf.reshape(self.target[:,:,:,:self.K,:],
                           [self.batch_size, self.image_size[0],
                            self.image_size[1], -1])
@@ -72,6 +74,7 @@ class MCNET(object):
       )
       self.L_gdl = gdl(gen_sim, true_sim, 1.)
       self.L_img = self.L_p + self.L_gdl
+
 
       self.d_loss_real = tf.reduce_mean(
           tf.nn.sigmoid_cross_entropy_with_logits(
@@ -103,9 +106,9 @@ class MCNET(object):
       self.d_vars = [var for var in self.t_vars if 'DIS' in var.name]
       num_param = 0.0
       for var in self.g_vars:
-        num_param += int(np.prod(var.get_shape()));
+        num_param += int(np.prod(var.get_shape()))
       print("Number of parameters: %d"%num_param)
-    self.saver = tf.train.Saver(max_to_keep=10)
+    self.saver = tf.train.Saver(max_to_keep=2)
 
   def forward(self, diff_in, xt, cell):
     # Initial state
@@ -127,7 +130,6 @@ class MCNET(object):
         res_connect = self.residual(res_m, res_c, reuse=False)
         x_hat = self.dec_cnn(h_tp1, res_connect, reuse=False)
       else:
-        # I don't want it to go here~
         assert(0)
         enc_h, res_m = self.motion_enc(diff_in, reuse=True)
         h_dyn, state = cell(enc_h, state, scope='lstm', reuse=True)
@@ -139,21 +141,17 @@ class MCNET(object):
       if self.c_dim == 3:
         # Network outputs are BGR so they need to be reversed to use
         # rgb_to_grayscale
-        # Below part won't be used... I only predict one frame
-        x_hat_rgb = tf.concat(axis=3,
-                              values=[x_hat[:,:,:,2:3], x_hat[:,:,:,1:2],
-                                      x_hat[:,:,:,0:1]])
-        xt_rgb = tf.concat(axis=3,
-                           values=[xt[:,:,:,2:3], xt[:,:,:,1:2],
-                                   xt[:,:,:,0:1]])
+        # x_hat_rgb = tf.concat(axis=3,
+        #                       values=[x_hat[:,:,:,2:3], x_hat[:,:,:,1:2],
+        #                               x_hat[:,:,:,0:1]])
+        # xt_rgb = tf.concat(axis=3,
+        #                    values=[xt[:,:,:,2:3], xt[:,:,:,1:2],
+        #                            xt[:,:,:,0:1]])
 
-        x_hat_gray = 1./255.*tf.image.rgb_to_grayscale(
-            inverse_transform(x_hat_rgb)*255.
-        )
-        xt_gray = 1./255.*tf.image.rgb_to_grayscale(
-            inverse_transform(xt_rgb)*255.
-        )
+        x_hat_gray = inverse_transform(x_hat)
+        xt_gray = inverse_transform(xt)
       else:
+        exit(0)
         x_hat_gray = inverse_transform(x_hat)
         xt_gray = inverse_transform(xt)
 
@@ -269,17 +267,6 @@ class MCNET(object):
                          d_h=1, d_w=1, name='dec_deconv1_1', reuse=reuse))
     return xtp1
 
-  def discriminator(self, image):
-    h0 = lrelu(conv2d(image, self.df_dim, name='dis_h0_conv'))
-    h1 = lrelu(batch_norm(conv2d(h0, self.df_dim*2, name='dis_h1_conv'),
-                          "bn1"))
-    h2 = lrelu(batch_norm(conv2d(h1, self.df_dim*4, name='dis_h2_conv'),
-                          "bn2"))
-    h3 = lrelu(batch_norm(conv2d(h2, self.df_dim*8, name='dis_h3_conv'),
-                          "bn3"))
-    h = linear(tf.reshape(h3, [self.batch_size, -1]), 1, 'dis_h3_lin')
-
-    return tf.nn.sigmoid(h), h
 
   def save(self, sess, checkpoint_dir, step):
     model_name = "MCNET.model"

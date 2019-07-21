@@ -5,3 +5,4 @@ samples/*
 .vscode/*
 *.pyc
 results/*
+*.png

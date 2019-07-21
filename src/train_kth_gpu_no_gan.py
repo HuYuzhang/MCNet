@@ -2,6 +2,7 @@ import cv2
 import sys
 import time
 import imageio
+import os
 
 import tensorflow as tf
 import scipy.misc as sm
@@ -18,11 +19,13 @@ from joblib import Parallel, delayed
 
 def main(lr, batch_size, alpha, beta, image_size, K,
          T, num_iter, gpu):
+  os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu[0])
+  
   data_path = "../data/KTH/"
   f = open(data_path+"train_data_list_trimmed.txt","r")
   trainfiles = f.readlines()
   margin = 0.3 
-  updateD = True
+  updateD = False
   updateG = True
   iters = 0
   prefix  = ("KTH_MCNET"
@@ -46,19 +49,19 @@ def main(lr, batch_size, alpha, beta, image_size, K,
   if not exists(summary_dir):
     makedirs(summary_dir)
 
-  with tf.device("/cpu:0"):
+  with tf.device("/gpu:%d"%gpu[0]):
     model = MCNET(image_size=[image_size,image_size], c_dim=1,
                   K=K, batch_size=batch_size, T=T,
                   checkpoint_dir=checkpoint_dir)
-    d_optim = tf.train.AdamOptimizer(lr, beta1=0.5).minimize(
-        model.d_loss, var_list=model.d_vars
-    )
+
     g_optim = tf.train.AdamOptimizer(lr, beta1=0.5).minimize(
-        alpha*model.L_img+beta*model.L_GAN, var_list=model.g_vars
+        model.L_img, var_list=model.g_vars
     )
 
-  # gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=1.0)
-  with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
+  gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.6)
+  with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
+                  log_device_placement=False,
+                  gpu_options=gpu_options)) as sess::
 
     tf.global_variables_initializer().run()
 
@@ -68,10 +71,8 @@ def main(lr, batch_size, alpha, beta, image_size, K,
       print(" [!] Load failed...")
 
     g_sum = tf.summary.merge([model.L_p_sum,
-                              model.L_gdl_sum, model.loss_sum,
-                              model.L_GAN_sum])
-    d_sum = tf.summary.merge([model.d_loss_real_sum, model.d_loss_sum,
-                              model.d_loss_fake_sum])
+                              model.L_gdl_sum, model.loss_sum])
+
     writer = tf.summary.FileWriter(summary_dir, sess.graph)
 
     counter = iters+1
@@ -101,57 +102,36 @@ def main(lr, batch_size, alpha, beta, image_size, K,
               seq_batch[i] = output[i][0]
               diff_batch[i] = output[i][1]
 
-            if updateD:
-              _, summary_str = sess.run([d_optim, d_sum],
-                                         feed_dict={model.diff_in: diff_batch,
-                                                    model.xt: seq_batch[:,:,:,K-1],
-                                                    model.target: seq_batch})
-              writer.add_summary(summary_str, counter)
 
-            if updateG:
-              _, summary_str = sess.run([g_optim, g_sum],
-                                         feed_dict={model.diff_in: diff_batch,
-                                                    model.xt: seq_batch[:,:,:,K-1],
-                                                    model.target: seq_batch})
-              writer.add_summary(summary_str, counter)
-
-            errD_fake = model.d_loss_fake.eval({model.diff_in: diff_batch,
+            _, summary_str = sess.run([g_optim, g_sum],
+                                        feed_dict={model.diff_in: diff_batch,
                                                 model.xt: seq_batch[:,:,:,K-1],
                                                 model.target: seq_batch})
-            errD_real = model.d_loss_real.eval({model.diff_in: diff_batch,
-                                                model.xt: seq_batch[:,:,:,K-1],
-                                                model.target: seq_batch})
-            errG = model.L_GAN.eval({model.diff_in: diff_batch,
+            writer.add_summary(summary_str, counter)
+
+
+            errL_img = model.L_img.eval({model.diff_in: diff_batch,
                                      model.xt: seq_batch[:,:,:,K-1],
                                      model.target: seq_batch})
-
-            if errD_fake < margin or errD_real < margin:
-              updateD = False
-            if errD_fake > (1.-margin) or errD_real > (1.-margin):
-              updateG = False
-            if not updateD and not updateG:
-              updateD = True
-              updateG = True
-
             counter += 1
   
             print(
-                "Iters: [%2d] time: %4.4f, d_loss: %.8f, L_GAN: %.8f" 
-                % (iters, time.time() - start_time, errD_fake+errD_real,errG)
+                "Iters: [%2d] time: %4.4f, L_img: %.8f" 
+                % (iters, time.time() - start_time, errL_img)
             )
 
-            if np.mod(counter, 100) == 1:
+            if np.mod(counter, 200) == 1:
               samples = sess.run([model.G],
                                   feed_dict={model.diff_in: diff_batch,
-                                             model.xt: seq_batch[:,:,:,K-1],
-                                             model.target: seq_batch})[0]
+                                              model.xt: seq_batch[:,:,:,K-1],
+                                              model.target: seq_batch})[0]
               samples = samples[0].swapaxes(0,2).swapaxes(1,2)
               sbatch  = seq_batch[0,:,:,K:].swapaxes(0,2).swapaxes(1,2)
               samples = np.concatenate((samples,sbatch), axis=0)
               print("Saving sample ...")
               save_images(samples[:,:,:,::-1], [2, T], 
                           samples_dir+"train_%s.png" % (iters))
-            if np.mod(counter, 500) == 2:
+            if np.mod(counter, 10000) == 2:
               model.save(sess, checkpoint_dir, counter)
   
             iters += 1

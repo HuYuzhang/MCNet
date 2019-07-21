@@ -6,34 +6,48 @@ import random
 import imageio
 import scipy.misc
 import numpy as np
-
+import IPython
 
 def transform(image):
-    return image/127.5 - 1.
+  """
+  Function transform will trans a (0-255) picture to a (-1.0, 1.0) picture
+  """
+  return image/127.5 - 1.
 
 
 def inverse_transform(images):
-    return (images+1.)/2.
+  """
+  Function inverse_transform will trans a (-1.0, 1.0) picture to a (0.0, 1.0) picture
+  """
+  return (images+1.)/2.
 
 
 def save_images(images, size, image_path):
   return imsave(inverse_transform(images)*255., size, image_path)
 
 
-def merge(images, size):
+def merge(images, size, YUV=True):
+  size = [int(x) for x in size]
   h, w = images.shape[1], images.shape[2]
-  img = np.zeros((h * size[0], w * size[1], 3))
-
+  img = np.zeros((h * size[0], w * size[1], 3), dtype=np.uint8)
+  images = images.astype(np.uint8)
   for idx, image in enumerate(images):
-    i = idx % size[1]
-    j = idx / size[1]
+    i = int(idx % size[1])
+    j = int(idx / size[1])
+    if YUV:
+      # IPython.embed()
+      image = cv2.cvtColor(image, cv2.COLOR_YUV2RGB)
+      # IPython.embed()
+      # exit(0)
     img[j*h:j*h+h, i*w:i*w+w, :] = image
-
+  img = img.astype(np.uint8)
   return img
 
 
 def imsave(images, size, path):
-  return scipy.misc.imsave(path, merge(images, size))
+  tmp_img = merge(images, size)
+  tmp_img = tmp_img.astype(np.uint8)
+  return cv2.imwrite(path, tmp_img)
 
 
 def get_minibatches_idx(n, minibatch_size, shuffle=False):
@@ -55,6 +69,7 @@ def get_minibatches_idx(n, minibatch_size, shuffle=False):
 
   if (minibatch_start != n): 
     # Make a minibatch out of what is left
+    # And this batch is samller than normal batch
     minibatches.append(idx_list[minibatch_start:])
 
   return zip(range(len(minibatches)), minibatches)
@@ -100,9 +115,14 @@ def load_kth_data(f_name, data_path, image_size, K, T):
     stidx = np.random.randint(low=low, high=high)
   seq = np.zeros((image_size, image_size, K+T, 1), dtype="float32")
   for t in range(K+T):
-    img = cv2.cvtColor(cv2.resize(vid.get_data(stidx+t),
-                       (image_size,image_size)),
-                       cv2.COLOR_RGB2GRAY)
+    try:
+      img = cv2.cvtColor(cv2.resize(vid.get_data(stidx+t),
+                        (image_size,image_size)),
+                        cv2.COLOR_RGB2GRAY)
+    except Exception:
+      print("Error detect by hyz: in utils.py: line 113")
+      import IPython
+      IPython.embed()
     seq[:,:,t] = transform(img[:,:,None])
 
   if flip == 1:
@@ -116,6 +136,27 @@ def load_kth_data(f_name, data_path, image_size, K, T):
 
   return seq, diff
 
+
+def load_vimeo_data(f_name, data_path, image_size, K, T):
+  seq = np.zeros((image_size, image_size, K+T, 3), dtype="float32")
+  for t in range(0, K+T):
+    # print(data_path  + f_name + "/im%d.png"%(t + 1))
+    img = cv2.imread(data_path  + f_name + "/im%d.png"%(t + 1))
+    # Below is the part for adapt the shape of image to right shape, right now I just take a simple indice
+    # Here our input's cahnnel is 3, for YUV each
+    # IPython.embed()
+    try:
+      yuv_img = cv2.cvtColor(img[:image_size, :image_size, :], cv2.COLOR_RGB2YUV)
+    except Exception:
+      IPython.embed()
+    seq[:,:,t] = transform(yuv_img)
+  # Then cal the diff, though we only have one diff
+  diff = np.zeros((image_size, image_size, K-1, 3), dtype="float32")
+  for t in range(1, K):
+      prev = inverse_transform(seq[:,:,t-1])
+      cur  = inverse_transform(seq[:,:,t  ])
+      diff[:,:,t - 1] = cur.astype("float32") - prev.astype("float32")
+  return seq, diff
 
 def load_s1m_data(f_name, data_path, trainlist, K, T):
   flip = np.random.binomial(1,.5,1)[0]
