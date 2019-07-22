@@ -6,3 +6,4 @@ samples/*
 *.pyc
 results/*
 *.png
+src/.vscode/*
