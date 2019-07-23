@@ -24,7 +24,7 @@ from PIL import ImageDraw
 def main(first, second, out):
     K=2
     T=1
-    ckpt= "MCNET.model-40002"
+    ckpt= "D:\\hyz\\TONGCE-exp\\py\\MCNET.model-10002"
     ref1 = first
     ref2 = second
     # IPython.embed()
