@@ -1,3 +1,9 @@
+'''
+This version is a runnable version, but still have some poor places...
+It is just a copy from train_mini_vimeo_gpu_gan
+Then all version of v1.x should derive from here
+'''
+
 import cv2
 import sys
 import time

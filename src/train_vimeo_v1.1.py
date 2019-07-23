@@ -1,3 +1,8 @@
+'''
+This version derives from train_vimeo_v1
+Here I decide to move the usage of GAN, just use the L2 loss
+'''
+
 import cv2
 import sys
 import time
@@ -26,10 +31,10 @@ def main(lr, batch_size, alpha, beta, image_size_h, image_size_w, K,
     f = open(data_path+"sep_trainlist.txt","r")
     trainfiles = [l[:-1] for l in f.readlines()]
     margin = 0.3 
-    updateD = True
+    updateD = False
     updateG = True
     iters = 0
-    prefix  = ("VIMEO_MCNET_MINI"
+    prefix  = ("VIMEO_MCNET_V1.1"
             + "_image_size_h="+str(image_size_h)
             + "_image_size_w="+str(image_size_w)
             + "_K="+str(K)
@@ -55,11 +60,11 @@ def main(lr, batch_size, alpha, beta, image_size_h, image_size_w, K,
         model = MCNET(image_size=[image_size_h,image_size_w], c_dim=3,
                     K=K, batch_size=batch_size, T=T,
                     checkpoint_dir=checkpoint_dir)
-        d_optim = tf.train.AdamOptimizer(lr, beta1=0.5).minimize(
-            model.d_loss, var_list=model.d_vars
-        )
+        # d_optim = tf.train.AdamOptimizer(lr, beta1=0.5).minimize(
+        #     model.d_loss, var_list=model.d_vars
+        # )
         g_optim = tf.train.AdamOptimizer(lr, beta1=0.5).minimize(
-            alpha*model.L_img+beta*model.L_GAN, var_list=model.g_vars
+            alpha*model.L_img, var_list=model.g_vars
         )
 
     gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8)
@@ -76,8 +81,8 @@ def main(lr, batch_size, alpha, beta, image_size_h, image_size_w, K,
 
         g_sum = tf.summary.merge([model.L_p_sum,
                                 model.L_gdl_sum, model.loss_sum])
-        d_sum = tf.summary.merge([model.d_loss_real_sum, model.d_loss_sum,
-                                model.d_loss_fake_sum])
+        # d_sum = tf.summary.merge([model.d_loss_real_sum, model.d_loss_sum,
+        #                         model.d_loss_fake_sum])
         writer = tf.summary.FileWriter(summary_dir, sess.graph)
 
         counter = iters+1
@@ -113,12 +118,12 @@ def main(lr, batch_size, alpha, beta, image_size_h, image_size_w, K,
                         seq_batch[i] = output[i][0]
                         diff_batch[i] = output[i][1]
 
-                    if updateD:
-                        _, summary_str = sess.run([d_optim, d_sum],
-                                                    feed_dict={model.diff_in: diff_batch,
-                                                            model.xt: seq_batch[:,:,:,K-1],
-                                                            model.target: seq_batch})
-                        writer.add_summary(summary_str, counter)
+                    # if updateD:
+                    #     _, summary_str = sess.run([d_optim, d_sum],
+                    #                                 feed_dict={model.diff_in: diff_batch,
+                    #                                         model.xt: seq_batch[:,:,:,K-1],
+                    #                                         model.target: seq_batch})
+                    #     writer.add_summary(summary_str, counter)
 
                     if updateG:
                         _, summary_str = sess.run([g_optim, g_sum],
@@ -127,33 +132,33 @@ def main(lr, batch_size, alpha, beta, image_size_h, image_size_w, K,
                                                             model.target: seq_batch})
                         writer.add_summary(summary_str, counter)
                     
-                    errD_fake = model.d_loss_fake.eval({model.diff_in: diff_batch,
-                                                model.xt: seq_batch[:,:,:,K-1],
-                                                model.target: seq_batch})
-                    errD_real = model.d_loss_real.eval({model.diff_in: diff_batch,
-                                                model.xt: seq_batch[:,:,:,K-1],
-                                                model.target: seq_batch})
-                    errG = model.L_GAN.eval({model.diff_in: diff_batch,
-                                                model.xt: seq_batch[:,:,:,K-1],
-                                                model.target: seq_batch})
+                    # errD_fake = model.d_loss_fake.eval({model.diff_in: diff_batch,
+                    #                             model.xt: seq_batch[:,:,:,K-1],
+                    #                             model.target: seq_batch})
+                    # errD_real = model.d_loss_real.eval({model.diff_in: diff_batch,
+                    #                             model.xt: seq_batch[:,:,:,K-1],
+                    #                             model.target: seq_batch})
+                    # errG = model.L_GAN.eval({model.diff_in: diff_batch,
+                    #                             model.xt: seq_batch[:,:,:,K-1],
+                    #                             model.target: seq_batch})
 
                     errL_img = model.L_img.eval({model.diff_in: diff_batch,
                                                 model.xt: seq_batch[:,:,:,K-1],
                                                 model.target: seq_batch})
 
-                    if errD_fake < margin or errD_real < margin:
-                        updateD = False
-                    if errD_fake > (1.-margin) or errD_real > (1.-margin):
-                        updateG = False
-                    if not updateD and not updateG:
-                        updateD = True
-                        updateG = True
+                    # if errD_fake < margin or errD_real < margin:
+                    #     updateD = False
+                    # if errD_fake > (1.-margin) or errD_real > (1.-margin):
+                    #     updateG = False
+                    # if not updateD and not updateG:
+                    #     updateD = True
+                    #     updateG = True
 
                     counter += 1
                     if counter % 50 == 0:
                         print(
-                            "Iters: [%2d] time: %4.4f, d_loss: %.8f, L_GAN: %.8f, img_loss:%.8f" 
-                            % (iters, time.time() - start_time, errD_fake+errD_real,errG,errL_img)
+                            "Iters: [%2d] time: %4.4f, img_loss:%.8f" 
+                            % (iters, time.time() - start_time, errL_img)
                         )
 
                     if np.mod(counter, 200) == 1:
